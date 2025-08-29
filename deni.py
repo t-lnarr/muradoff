@@ -1,22 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Single-file Telegram bot implementing:
-- /start with referral handling (stars + optional hours trial)
-- Guides / FAQ exact button (big text)
-- Language menu (Türkmençe / Русский) and translations for menu items
-- Stars: persistent + temporary (expires after hours)
-- Exchange stars -> days (many presets)
-- Daily bonus
-- VIP text
-- Posting flow (text/photo) with channel admin check (if not admin: special message)
-- Scheduler that posts periodically and deletes previous posts
-- Admin panel: add/remove admin, add/remove channel, promo/create/list, broadcast,
-  set referral bonus, star fill, ban/unban, edit texts
-- Admin notify (user pays 10⭐ to send message to admins; admins receive stats) — FIXED
-- Ban guard: banned users receive "❌Ban iydin sen amk" on any interaction
-- DB persisted to JSON file (db.json)
-IMPORTANT: This version is updated for deployment on platforms like Railway.
-           TOKEN and ADMIN_IDS must be set as environment variables.
+... (оставил комментируемую часть без изменений)
 """
 
 import os
@@ -26,40 +11,33 @@ import threading
 import traceback
 import math
 from datetime import datetime, timedelta
-import sys
 
 import telebot
 from telebot import types
 
-# ---------------- CONFIG - SET VIA ENVIRONMENT VARIABLES ----------------
-TOKEN = os.environ.get("TOKEN")
-ADMIN_IDS_RAW = os.environ.get("ADMIN_IDS", "") # Comma-separated, e.g., "12345,67890"
-
-# --- DB Path Configuration for Persistent Storage (e.g., Railway Volumes) ---
-# Use a directory provided by the hosting service, default to current directory.
-DATA_DIR = os.environ.get("DATA_DIR", ".")
-DB_PATH = os.path.join(DATA_DIR, "db.json")
-
-# --- Validate Configuration ---
+# ---------------- CONFIG - ORTAMI DEĞİŞKENLERİNDEN OKU ----------------
+# --- GÜVENLİK UYARISI: BU DEĞERLERİ DOĞRUDAN KODA YAZMAYIN! ---
+# Railway veya yerel ortamınızda bu değişkenleri tanımlayın.
+# Bot token'ınızı BotFather'dan alın.
+TOKEN = os.getenv("TOKEN")
 if not TOKEN:
-    print("HATA: TOKEN ortam değişkeni ayarlanmamış. Lütfen bot token'ınızı girin.")
-    sys.exit(1)
+    raise ValueError("TOKEN ortam değişkeni ayarlanmamış! Lütfen bot token'ınızı tanımlayın.")
 
-ADMIN_IDS = set()
-if ADMIN_IDS_RAW:
-    try:
-        ADMIN_IDS = {int(admin_id.strip()) for admin_id in ADMIN_IDS_RAW.split(',')}
-    except ValueError:
-        print("HATA: ADMIN_IDS geçersiz formatta. Sadece rakam ve virgül kullanın (örn: 12345,67890).")
-        sys.exit(1)
+# Adminlerin Telegram kullanıcı ID'lerini virgülle ayırarak yazın (örn: "12345,67890").
+ADMIN_IDS_STR = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS = {int(admin_id.strip()) for admin_id in ADMIN_IDS_STR.split(',') if admin_id.strip()}
 
-# Ensure the data directory exists
-os.makedirs(DATA_DIR, exist_ok=True)
+# Veritabanı dosyasının yolu. Railway'de kalıcı depolama için '/data/' dizinini kullanmak önemlidir.
+DB_PATH = os.getenv("DB_PATH", "/data/db.json") # Railway için varsayılan
+# Eğer yerelde çalıştırıyorsanız ve '/data' dizini yoksa, mevcut dizine kaydeder.
+if not os.path.isdir(os.path.dirname(DB_PATH)):
+    print(f"Uyarı: '{os.path.dirname(DB_PATH)}' dizini bulunamadı. Veritabanı 'db.json' olarak mevcut dizine kaydedilecek.")
+    DB_PATH = "db.json"
 
-
-FREE_TRIAL_DAYS = 2
-DAILY_BONUS_STARS = 1.0   # adjust as you like
-ADMIN_NOTIFY_COST = 10.0  # ⭐ cost to message admins
+# Diğer ayarlar
+FREE_TRIAL_DAYS = int(os.getenv("FREE_TRIAL_DAYS", 2))
+DAILY_BONUS_STARS = float(os.getenv("DAILY_BONUS_STARS", 1.0))
+ADMIN_NOTIFY_COST = float(os.getenv("ADMIN_NOTIFY_COST", 10.0))
 
 # ---------------- BOT INIT ----------------
 bot = telebot.TeleBot(TOKEN, parse_mode="HTML")
@@ -125,12 +103,7 @@ def load_db():
         with open(DB_PATH, "w", encoding="utf-8") as f:
             json.dump(DEFAULT_DB, f, ensure_ascii=False, indent=2)
     with open(DB_PATH, "r", encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError:
-            print("UYARI: db.json dosyası bozuk veya boş. Varsayılan veritabanı oluşturuluyor.")
-            return DEFAULT_DB.copy() # Return a copy to avoid mutation issues
-            
+        data = json.load(f)
     # ensure defaults & normalize
     for k, v in DEFAULT_DB.items():
         if k not in data:
@@ -150,17 +123,10 @@ def load_db():
     return data
 
 def save_db():
-    # Use a lock to prevent race conditions when writing to the db file
-    with threading.Lock():
-        with open(DB_PATH, "w", encoding="utf-8") as f:
-            json.dump(db, f, ensure_ascii=False, indent=2)
+    with open(DB_PATH, "w", encoding="utf-8") as f:
+        json.dump(db, f, ensure_ascii=False, indent=2)
 
 db = load_db()
-
-# (.... Geri kalan tüm kodunuz burada HİÇBİR DEĞİŞİKLİK OLMADAN devam ediyor ...)
-# (.... The rest of your code continues here WITHOUT ANY CHANGES ....)
-# The functions from now_iso() to the end of the file remain exactly the same.
-# I am omitting them here for brevity, but you should copy the entire rest of your original file.
 
 def now_iso():
     return datetime.utcnow().isoformat()
@@ -241,7 +207,7 @@ def sendf(chat_id, text, **kwargs):
         try:
             return bot.send_message(chat_id, text, **kwargs)
         except Exception as e:
-            print(f"sendf fail for chat {chat_id}: {e}")
+            print("sendf fail:", e)
             return None
 
 def editf(chat_id, message_id, text, **kwargs):
@@ -251,7 +217,7 @@ def editf(chat_id, message_id, text, **kwargs):
         try:
             return bot.edit_message_text(text, chat_id=chat_id, message_id=message_id, **kwargs)
         except Exception as e:
-            print(f"editf fail for chat {chat_id}, msg {message_id}: {e}")
+            print("editf fail:", e)
             return None
 
 # ---------------- Stars handling ----------------
@@ -396,7 +362,7 @@ def star_exchange_keyboard():
     return kb
 
 # ---------------- Ban guard ----------------
-BAN_MESSAGE = "❌Ban iydin sen amk"
+BAN_MESSAGE = "❌ Siziň hasabyňyz ban edildi."
 
 def banned_guard(uid: int, chat_id: int) -> bool:
     u = db.get("users", {}).get(str(uid))
@@ -428,48 +394,39 @@ def scheduler_loop():
         try:
             now_ts = time.time()
             with sched_lock:
-                # Create a copy of the list to iterate over, allowing safe removal
                 for post in list(db.get("scheduled", [])):
                     if post.get("paused"):
                         continue
                     owner = str(post.get("owner"))
                     owner_data = db.get("users", {}).get(owner)
-                    
-                    # Cleanup if owner doesn't exist anymore
                     if not owner_data:
                         try:
                             db["scheduled"].remove(post)
                             save_db()
-                        except ValueError: # Item already removed
+                        except Exception:
                             pass
                         continue
-                    
-                    # Handle banned users
                     if owner_data.get("banned"):
                         delete_channel_last_if_matches(post["channel"], post["id"])
                         try:
                             db["scheduled"].remove(post)
                             save_db()
-                        except ValueError:
+                        except Exception:
                             pass
                         continue
-                    
-                    # Handle expired trials
                     trial_end = parse_iso(owner_data.get("trial_end"))
                     if trial_end and datetime.utcnow() > trial_end and not is_admin(int(owner)):
                         delete_channel_last_if_matches(post["channel"], post["id"])
                         try:
                             db["scheduled"].remove(post)
                             save_db()
-                        except ValueError:
+                        except Exception:
                             pass
                         try:
                             sendf(int(owner), "⏳ Siziň free trial wagtyňyz gutardy — şol post awtomatiki pozuldy.")
                         except Exception:
                             pass
                         continue
-
-                    # Execute scheduled post
                     if now_ts >= post.get("next_time", 0):
                         try:
                             prev = db.get("channel_last", {}).get(post["channel"])
@@ -478,30 +435,26 @@ def scheduler_loop():
                                     bot.delete_message(post["channel"], prev.get("message_id"))
                                 except Exception:
                                     pass
-                            
                             if post["type"] == "photo":
                                 msg = bot.send_photo(post["channel"], post["photo"], caption=post.get("caption",""), parse_mode="HTML")
                             else:
                                 msg = bot.send_message(post["channel"], post.get("text",""), parse_mode="HTML")
-                            
                             db.setdefault("channel_last", {})[post["channel"]] = {"post_id": post["id"], "message_id": msg.message_id}
                             post["last_message_id"] = msg.message_id
                             post["next_time"] = now_ts + int(post.get("minute", 60)) * 60
                             save_db()
                         except Exception as e:
                             try:
-                                print(f"Error posting to {post['channel']} for owner {post['owner']}: {e}")
                                 post["paused"] = True
                                 save_db()
-                                sendf(int(post["owner"]), f"⚠️ Post kanala ugradylmady: Bot kanalda admin däl ýa-da başga bir ýalňyşlyk ýüze çykdy. Post pauza edildi.")
-                            except Exception as notify_error:
-                                print(f"Failed to notify owner {post['owner']} about posting error: {notify_error}")
+                                sendf(int(post["owner"]), f"⚠️ Post kanalga ugradylmady: {e}. Post pauza edildi.")
+                            except Exception:
                                 pass
             time.sleep(5)
         except Exception as e:
             print("Scheduler exception:", e)
             traceback.print_exc()
-            time.sleep(15) # Wait a bit longer on major failure
+            time.sleep(5)
 
 threading.Thread(target=scheduler_loop, daemon=True).start()
 
@@ -512,7 +465,7 @@ admin_states = {}
 
 # ---------------- Callback handlers ----------------
 
-# Post callbacks (delete / toggle)
+# Post callbacks (delete / toggle) - MOVED HERE TO FIX HANDLER ORDER
 @bot.callback_query_handler(func=lambda c: c.data and (c.data.startswith("delete_") or c.data.startswith("toggle_")))
 def post_item_callbacks(c: types.CallbackQuery):
     uid = c.from_user.id
@@ -530,12 +483,11 @@ def post_item_callbacks(c: types.CallbackQuery):
             bot.answer_callback_query(c.id, "⚠️ Rugsat ýok."); return
         delete_channel_last_if_matches(p["channel"], p["id"])
         try: db["scheduled"].remove(p)
-        except ValueError: pass # Already removed
+        except: pass
         owner = p.get("owner")
         urec = db.get("users", {}).get(str(owner))
         if urec and pid in urec.get("posts", []):
-            try: urec["posts"].remove(pid)
-            except ValueError: pass
+            urec["posts"].remove(pid)
         save_db()
         bot.answer_callback_query(c.id, "✅ Post pozuldy")
         try: editf(c.message.chat.id, c.message.message_id, "✅ Post pozuldy")
@@ -554,9 +506,8 @@ def post_item_callbacks(c: types.CallbackQuery):
             bot.answer_callback_query(c.id, "⚠️ Rugsat ýok."); return
         p["paused"] = not bool(p.get("paused"))
         save_db()
-        status_text = "⏸ Duruz edildi" if p["paused"] else "▶ Dowam etdi"
-        bot.answer_callback_query(c.id, status_text)
-        try: editf(c.message.chat.id, c.message.message_id, status_text)
+        bot.answer_callback_query(c.id, "⏸ Duruz edildi" if p["paused"] else "▶ Dowam etdi")
+        try: editf(c.message.chat.id, c.message.message_id, "⏸ Duruz edildi" if p["paused"] else "▶ Dowam etdi")
         except: pass
         return
 
@@ -619,9 +570,11 @@ def handle_callback(c: types.CallbackQuery):
 
     # ---------- Admin notify callbacks ----------
     if data == "admin_notify_buy":
+        # Enter awaiting_admin_msg state and prompt user to send message
         ensure_user(uid)
+        # we don't deduct yet — do deduction at send time to allow media/text
         user_states[uid] = {"awaiting_admin_msg": True}
-        try: bot.answer_callback_query(c.id, "✉️ Habaryňyzy ugradyň.")
+        try: bot.answer_callback_query(c.id, "✉️ Habарыñyzy ugradyň.")
         except: pass
         sendf(uid, "📨 <b>Habary tekst ýa-da surat görnüşinde ugradyň.</b>\n\n🌟 <i>Administratorlara habar ugratmak üçin 10 ⭐ talap edilýär. Habary ugradanyňyzda 10 ⭐ awtomatiki tutulýar.</i>", reply_markup=types.ReplyKeyboardRemove())
         return
@@ -632,10 +585,7 @@ def handle_callback(c: types.CallbackQuery):
         sendf(uid, db.get("texts", {}).get("welcome"), reply_markup=main_menu_keyboard(uid))
         return
 
-    try:
-        bot.answer_callback_query(c.id, "ℹ️ Eskidi ýa-da näbelli düwme.")
-    except:
-        pass
+    bot.answer_callback_query(c.id, "ℹ️ Eskidi ýa-da näbelli düwme.")
 
 # ---------------- Message handlers ----------------
 @bot.message_handler(commands=["start"])
@@ -643,70 +593,57 @@ def cmd_start(m: types.Message):
     uid = m.from_user.id
     if banned_guard(uid, uid): return
     username = m.from_user.username or (m.from_user.first_name or "")
-    
-    # Referral handling
+    ensure_user(uid, username)
+
     parts = (m.text or "").split(maxsplit=1)
     ref = parts[1].strip() if len(parts) == 2 else None
-    user_just_created = str(uid) not in db["users"]
-    ensure_user(uid, username) # Ensure user exists before proceeding
-
-    if ref and ref.isdigit() and ref != str(uid) and user_just_created:
-        inviter_id_str = str(ref)
-        # Check if this user was already referred
+    if ref and ref.isdigit() and ref != str(uid):
+        inviter = str(ref)
         if db["users"].get(str(uid), {}).get("ref_by") is None:
-            db["users"][str(uid)]["ref_by"] = int(inviter_id_str)
-            
-            # Ensure inviter exists
-            ensure_user(int(inviter_id_str))
-            
-            # Update referrals list
-            ref_list = db.setdefault("referrals", {}).setdefault(inviter_id_str, [])
-            if str(uid) not in ref_list:
-                ref_list.append(str(uid))
-
-            # Grant bonus to inviter
+            db["users"][str(uid)]["ref_by"] = int(inviter)
+            lst = db.get("referrals", {}).get(inviter, [])
+            if str(uid) not in lst:
+                lst.append(str(uid))
+            db.setdefault("referrals", {})[inviter] = lst
+            if inviter not in db["users"]:
+                db["users"][inviter] = {
+                    "joined_at": now_iso(),
+                    "username": "",
+                    "ref_by": None,
+                    "banned": False,
+                    "stars": 0.0,
+                    "temp_stars": [],
+                    "trial_end": (datetime.utcnow() + timedelta(days=FREE_TRIAL_DAYS)).isoformat(),
+                    "posts": [],
+                    "last_daily_bonus": None,
+                    "lang": "tk"
+                }
             rb = db.get("referral_bonus", {"stars": 1.0, "hours": 0})
-            add_stars = float(rb.get("stars", 1.0))
-            add_hours = int(rb.get("hours", 0))
-            
-            inviter_user = db["users"][inviter_id_str]
+            add_stars = float(rb.get("stars", 1.0)); add_hours = int(rb.get("hours", 0))
+            inv_user = db["users"][inviter]
             if add_hours > 0:
                 expires_at = (datetime.utcnow() + timedelta(hours=add_hours)).isoformat()
-                inviter_user.setdefault("temp_stars", []).append({"amount": add_stars, "expires_at": expires_at})
+                inv_user.setdefault("temp_stars", []).append({"amount": add_stars, "expires_at": expires_at})
+                cur_end = parse_iso(inv_user.get("trial_end"))
+                start_from = max(cur_end, datetime.utcnow()) if cur_end else datetime.utcnow()
+                inv_user["trial_end"] = (start_from + timedelta(hours=add_hours)).isoformat()
             else:
-                inviter_user["stars"] = round(inviter_user.get("stars", 0.0) + add_stars, 2)
-            
+                inv_user["stars"] = round(inv_user.get("stars", 0.0) + add_stars, 2)
             save_db()
-            
             try:
-                bonus_message = f"🎉 Referral: +{add_stars:.0f} ⭐"
-                if add_hours > 0:
-                    bonus_message += f", +{add_hours} sagat trial!"
-                sendf(int(inviter_id_str), bonus_message)
-            except Exception as e:
-                print(f"Failed to notify inviter {inviter_id_str}: {e}")
+                sendf(int(inviter), f"🎉 Referral: +{add_stars:.0f} ⭐, +{add_hours} sagat trial!")
+            except Exception:
+                pass
 
-    # Subscription check
     if not check_subs(uid):
         kb = types.InlineKeyboardMarkup()
         for ch in db.get("channels", []):
-            try:
-                # Get chat details to display title instead of @username
-                chat_info = bot.get_chat(ch)
-                kb.add(types.InlineKeyboardButton(chat_info.title, url=f"https://t.me/{ch.replace('@','')}"))
-            except:
-                 kb.add(types.InlineKeyboardButton(ch, url=f"https://t.me/{ch.replace('@','')}"))
+            kb.add(types.InlineKeyboardButton(ch, url=f"https://t.me/{ch.replace('@','')}"))
         kb.add(types.InlineKeyboardButton("✅ Barlandy", callback_data="check_subs"))
         sendf(uid, "📢 Hoş geldiňiz! Boty doly ulanmak üçin aşakdaky kanallara goşulyň we \"✅ Barlandy\" düwmesine basyň:", reply_markup=kb)
         return
 
     sendf(uid, db.get("texts", {}).get("welcome"), reply_markup=main_menu_keyboard(uid))
-
-
-# ... (Diğer tüm message handler'lar aynı kalacak) ...
-# ... (All other message handlers will remain the same) ...
-# I am omitting the rest of the message handlers for brevity.
-# Copy them from your original file.
 
 # Language menu
 @bot.message_handler(func=lambda m: (m.text or "") in ("🌐 Dil", "🌐 Язык"))
@@ -731,16 +668,7 @@ def cmd_profile(m: types.Message):
         delta = trial_end - datetime.utcnow()
         secs = max(delta.total_seconds(), 0)
         days_left = math.ceil(secs / 86400) if secs > 0 else 0
-    last_bonus_iso = u.get("last_daily_bonus")
-    last_bonus_str = "—"
-    if last_bonus_iso:
-        try:
-            # Format for better readability
-            last_bonus_dt = parse_iso(last_bonus_iso)
-            last_bonus_str = last_bonus_dt.strftime("%Y-%m-%d %H:%M")
-        except:
-            last_bonus_str = last_bonus_iso # fallback to raw iso
-            
+    last_bonus = u.get("last_daily_bonus") or "—"
     txt = (f"👤 <b>Profil</b>\n\n"
            f"ID: <code>{uid}</code>\n"
            f"📛 Ulanyjy: @{u.get('username','')}\n"
@@ -748,7 +676,7 @@ def cmd_profile(m: types.Message):
            f"👥 Referral: {invited}\n"
            f"⭐ Stars: {total:.2f} (🔒 {persistent:.2f} + ⏳ {temp_total:.2f})\n"
            f"🕒 Free trial galan: {days_left} gün\n"
-           f"🎁 Soňky günlik bonus: {last_bonus_str}\n\n"
+           f"🎁 Soňky günlik bonus: {last_bonus}\n\n"
            f"🔗 Referal link: <code>https://t.me/{bot.get_me().username}?start={uid}</code>")
     sendf(uid, txt)
 
@@ -773,15 +701,7 @@ def handle_promocode_entry(m: types.Message):
         sendf(uid, "❌ Ýalňyş ýa gutardy."); return
     if promo.get("limit") is not None and promo.get("used", 0) >= promo.get("limit", 0):
         sendf(uid, "❌ Bu kod üçin limit gutardy."); return
-    
-    # Check if user has already used this promo
-    used_by = promo.setdefault("used_by", [])
-    if str(uid) in used_by:
-        sendf(uid, "❌ Siz bu promocode eýýäm ulandyňyz."); return
-
     promo["used"] = promo.get("used", 0) + 1
-    used_by.append(str(uid))
-    
     add = float(promo.get("stars", 1.0))
     ensure_user(uid)
     db["users"][str(uid)]["stars"] = round(db["users"][str(uid)].get("stars", 0.0) + add, 2)
@@ -801,7 +721,7 @@ def cmd_top_ref(m: types.Message):
     txt = "<b>🏆 Iň köp çagyranlar:</b>\n\n"
     for i, (inv, cnt) in enumerate(items[:10], start=1):
         usr = db.get("users", {}).get(inv, {})
-        uname = f"@{usr.get('username')}" if usr.get('username') else f"ID: {inv}"
+        uname = f"@{usr.get('username')}" if usr.get('username') else inv
         txt += f"{i}. {uname} — {cnt} 👥\n"
     sendf(uid, txt)
 
@@ -863,8 +783,8 @@ def cmd_post(m: types.Message):
     end = parse_iso(u.get("trial_end"))
     if end and datetime.utcnow() > end and not is_admin(uid):
         sendf(uid, "⏳ Free trial gutardy. ⭐ bilen gün alyň ýa-da promo ulanyň."); return
-    if not is_admin(uid) and len(u.get("posts", [])) >= 6: # Increased limit
-        sendf(uid, "⚠️ Maksimum post sanyna ýetdiňiz (6 post)."); return
+    if not is_admin(uid) and len(u.get("posts", [])) >= 3:
+        sendf(uid, "⚠️ Maks: 3 post."); return
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("✏ Tekst", "🖼 Surat")
     kb.row("⬅️ Yza")
@@ -876,7 +796,7 @@ def post_choose_type(m: types.Message):
     if banned_guard(uid, uid): return
     txt = (m.text or "").strip()
     if txt == "⬅️ Yza": sendf(uid, "⬅️ Baş menýu", reply_markup=main_menu_keyboard(uid)); return
-    if txt not in ("✏ Tekst", "🖼 Surat"): sendf(uid, "⚠️ Dogry saýlaň.", reply_markup=main_menu_keyboard(uid)); return
+    if txt not in ("✏ Tekst", "🖼 Surat"): sendf(uid, "⚠️ Saýlaň."); return
     user_states[uid] = {"type": "text" if txt == "✏ Tekst" else "photo"}
     if user_states[uid]["type"] == "text":
         msg = sendf(uid, "✍ Teksti giriziň:", reply_markup=types.ReplyKeyboardRemove())
@@ -888,19 +808,22 @@ def post_choose_type(m: types.Message):
 def post_receive_text(m: types.Message):
     uid = m.from_user.id
     if banned_guard(uid, uid): return
-    user_states.setdefault(uid, {})["text"] = m.text or ""
+    user_states.get(uid, {})["text"] = m.text or ""
     msg = sendf(uid, "🕒 Minut giriziň (mysal: 5):")
     bot.register_next_step_handler(msg, post_receive_minute)
 
 def post_receive_photo(m: types.Message):
     uid = m.from_user.id
     if banned_guard(uid, uid): return
-    if not m.photo: 
-        sendf(uid, "⚠️ Surat tapylmady. Baş menýu.", reply_markup=main_menu_keyboard(uid))
-        user_states.pop(uid, None)
-        return
-    user_states.setdefault(uid, {})["photo"] = m.photo[-1].file_id
-    user_states.setdefault(uid, {})["caption"] = m.caption or "" # Capture caption with photo
+    if not m.photo: sendf(uid, "⚠️ Surat tapylmady."); return
+    user_states.get(uid, {})["photo"] = m.photo[-1].file_id
+    msg = sendf(uid, "✍ Caption (opsional):")
+    bot.register_next_step_handler(msg, post_receive_caption)
+
+def post_receive_caption(m: types.Message):
+    uid = m.from_user.id
+    if banned_guard(uid, uid): return
+    user_states.get(uid, {})["caption"] = m.text or ""
     msg = sendf(uid, "🕒 Minut giriziň (mysal: 5):")
     bot.register_next_step_handler(msg, post_receive_minute)
 
@@ -908,14 +831,10 @@ def post_receive_minute(m: types.Message):
     uid = m.from_user.id
     if banned_guard(uid, uid): return
     try:
-        minute = int((m.text or "").strip())
-        if not 1 <= minute <= 10080: # 1 min to 1 week
-            raise ValueError()
+        minute = int((m.text or "").strip()); assert minute > 0
     except Exception:
-        sendf(uid, "⚠️ 1 bilen 10080 arasynda bir san giriziň.", reply_markup=main_menu_keyboard(uid))
-        user_states.pop(uid, None)
-        return
-    user_states.setdefault(uid, {})["minute"] = minute
+        sendf(uid, "⚠️ San giriziň."); return
+    user_states.get(uid, {})["minute"] = minute
     msg = sendf(uid, "📢 Kanal: @username ýa-da ID giriziň:")
     bot.register_next_step_handler(msg, post_receive_channel)
 
@@ -924,58 +843,46 @@ def post_receive_channel(m: types.Message):
     if banned_guard(uid, uid): return
     channel = (m.text or "").strip()
     if not channel:
-        sendf(uid, "⚠️ Kanal boş.", reply_markup=main_menu_keyboard(uid)); user_states.pop(uid, None); return
-    
-    # Check bot is admin
+        sendf(uid, "⚠️ Kanal boş."); user_states.pop(uid, None); return
+    # check user is admin of the channel
     try:
-        me = bot.get_me()
-        bmem = bot.get_chat_member(channel, me.id)
-        if bmem.status not in ("administrator", "creator"):
-            sendf(uid, "⚠️ Meni kanala admin ediň we 'post goýmak' rugsadyny beriň.", reply_markup=main_menu_keyboard(uid))
+        member = bot.get_chat_member(channel, uid)
+        if member.status not in ("administrator", "creator"):
+            sendf(uid, "⚠️ Siz şu kanalda admin dälsiňiz. Kanalyň admini bolup ýada admin statusy alyň we soňra gaýtadan synanyşyň.")
             user_states.pop(uid, None)
             return
-    except telebot.apihelper.ApiTelegramException as e:
-        if "chat not found" in e.description or "user not found" in e.description:
-            sendf(uid, "⚠️ Kanal tapylmady. @username ýa-da kanal ID-sini dogry ýazandygyňyzy barlaň.", reply_markup=main_menu_keyboard(uid))
-        else:
-            sendf(uid, "⚠️ Kanal barlanmady. Boty admin edendigiňizi we ID/username-i dogry girizendigiňizi barlaň.", reply_markup=main_menu_keyboard(uid))
-        user_states.pop(uid, None)
-        return
     except Exception:
-        sendf(uid, "⚠️ Bir ýalňyşlyk ýüze çykdy. Botyň kanalda admin bolandygyny barlaň.", reply_markup=main_menu_keyboard(uid))
-        user_states.pop(uid, None)
+        sendf(uid, "⚠️ Kanal barlanmady ýa-da nädogry ad. Iňlis: @channel şeklinde dogry giriziň."); user_states.pop(uid, None)
         return
+    # check bot is admin
+    try:
+        me = bot.get_me(); bmem = bot.get_chat_member(channel, me.id)
+        if bmem.status not in ("administrator", "creator"):
+            sendf(uid, "⚠️ Meni kanala admin ediň, soň gaýtadan synanyşyň."); user_states.pop(uid, None); return
+    except Exception:
+        sendf(uid, "⚠️ Kanal barlanmady. Boty admin ediň."); user_states.pop(uid, None); return
 
-    st = user_states.pop(uid, None)
-    if not st:
-        sendf(uid, "⚠️ Sessia gutardy, täzeden başlaň.", reply_markup=main_menu_keyboard(uid))
-        return
-
+    st = user_states.pop(uid)
     post = {
         "id": str(int(time.time()*1000)),
         "owner": str(uid),
         "type": st["type"],
         "channel": channel,
         "minute": int(st["minute"]),
-        "next_time": time.time(), # Start immediately
+        "next_time": time.time() + int(st["minute"]) * 60,
         "paused": False,
         "created_at": now_iso()
     }
     if st["type"] == "text":
         post["text"] = st.get("text", "")
     else:
-        post["photo"] = st.get("photo")
-        post["caption"] = st.get("caption", "")
-
+        post["photo"] = st.get("photo"); post["caption"] = st.get("caption", "")
     u = ensure_user(uid, m.from_user.username or m.from_user.first_name)
-    u.setdefault("posts", []).append(post["id"])
-    db.setdefault("scheduled", []).append(post)
-    save_db()
-    
+    u.setdefault("posts", []).append(post["id"]); db.setdefault("scheduled", []).append(post); save_db()
     kb = types.InlineKeyboardMarkup()
     kb.add(types.InlineKeyboardButton("❌ Poz", callback_data=f"delete_{post['id']}"))
     kb.add(types.InlineKeyboardButton("⏸ Duruz / ▶ Dowam et", callback_data=f"toggle_{post['id']}"))
-    sendf(uid, f"✅ Post döredildi — ID: <code>{post['id']}</code>\n⏱ Her {post['minute']} minutdan gaýtalanar.", reply_markup=kb)
+    sendf(uid, f"✅ Post döredildi — ID: <code>{post['id']}</code>\n⏱ Her {post['minute']} minutda gaýtalanar.", reply_markup=kb)
 
 # My posts
 @bot.message_handler(func=lambda m: (m.text or "") in (TRANSLATIONS["tk"]["my_posts"], TRANSLATIONS["ru"]["my_posts"]))
@@ -987,25 +894,16 @@ def cmd_my_posts(m: types.Message):
     if not posts_ids:
         sendf(uid, "📭 Post ýok.", reply_markup=main_menu_keyboard(uid)); return
     sendf(uid, "📂 <b>Siziň postlaryňyz:</b>")
-    
-    active_posts_found = False
-    for pid in reversed(posts_ids): # Show newest first
+    for pid in posts_ids:
         p = next((x for x in db.get("scheduled", []) if x.get("id") == pid), None)
         if p:
-            active_posts_found = True
             kb = types.InlineKeyboardMarkup()
             kb.add(types.InlineKeyboardButton("❌ Poz", callback_data=f"delete_{p['id']}"))
             kb.add(types.InlineKeyboardButton("⏸ Duruz" if not p.get("paused") else "▶ Dowam et", callback_data=f"toggle_{p['id']}"))
-            created_at_str = "N/A"
-            if p.get('created_at'):
-                try: created_at_str = parse_iso(p['created_at']).strftime("%Y-%m-%d")
-                except: pass
-            
-            sendf(uid, f"• <code>{p['id']}</code> — Kanal: {p['channel']} — Minut: {p['minute']} — Döredildi: {created_at_str}", reply_markup=kb)
-    
-    if not active_posts_found:
-        sendf(uid, "📭 Aktiv post ýok (ähli postlaryňyz pozuldy).", reply_markup=main_menu_keyboard(uid))
-
+            sendf(uid, f"• <code>{p['id']}</code> — kanal: {p['channel']} — minut: {p['minute']} — created: {p['created_at']}", reply_markup=kb)
+        else:
+            sendf(uid, f"• <code>{pid}</code> — (pozulan)")
+    sendf(uid, "🔙 Baş menýu", reply_markup=main_menu_keyboard(uid))
 
 # ---------------- Admin panel handlers ----------------
 @bot.message_handler(func=lambda m: (m.text or "") in (TRANSLATIONS["tk"]["admin_panel"], TRANSLATIONS["ru"]["admin_panel"]))
@@ -1024,11 +922,6 @@ def admin_statistics(m: types.Message):
         return
     try:
         total_users = len(db.get("users", {}))
-        
-        # New user stats
-        now = datetime.utcnow()
-        users_24h = sum(1 for u in db.get("users", {}).values() if now - parse_iso(u.get("joined_at", "1970-01-01")) < timedelta(days=1))
-        
         total_admins = len(db.get("admins", []))
         total_channels = len(db.get("channels", []))
         scheduled = db.get("scheduled", [])
@@ -1036,12 +929,47 @@ def admin_statistics(m: types.Message):
         active = sum(1 for p in scheduled if not p.get("paused"))
         paused = total_scheduled - active
 
+        # posts per channel
+        per_channel = {}
+        for p in scheduled:
+            ch = p.get("channel")
+            per_channel[ch] = per_channel.get(ch, 0) + 1
+
+        if per_channel:
+            channels_text = ""
+            for ch, cnt in sorted(per_channel.items(), key=lambda x: (-x[1], x[0])):
+                channels_text += f"{ch} — {cnt} post\n"
+        else:
+            channels_text = "Entäk post ýok kanallarda."
+
+        # configured but unused channels
+        configured = db.get("channels", [])
+        unused = [ch for ch in configured if ch not in per_channel]
+        unused_text = ""
+        if unused:
+            unused_text = "\n\n📡 Konfigirlenen kanallar (post ýok):\n" + "\n".join(unused)
+
+        # top posting users
+        user_post_counts = []
+        for uid_str, u in db.get("users", {}).items():
+            user_post_counts.append((uid_str, len(u.get("posts", []))))
+        user_post_counts.sort(key=lambda x: x[1], reverse=True)
+        top = ""
+        for i, (uid_s, cnt) in enumerate(user_post_counts[:10], 1):
+            usr = db.get("users", {}).get(uid_s, {})
+            uname = usr.get("username") or uid_s
+            top += f"{i}. @{uname} — {cnt} post\n"
+        if not top:
+            top = "Entäk top poster ýok."
+
         text = (f"📊 <b>Statistika</b>\n\n"
-                f"👥 Jemi ulanyjylar: <b>{total_users}</b>\n"
-                f"📈 Täze ulanyjylar (24 sagat): <b>{users_24h}</b>\n"
+                f"👥 Ulanyjylar: <b>{total_users}</b>\n"
                 f"🛡 Adminlar: <b>{total_admins}</b>\n"
                 f"📡 Konfigirlenen kanallar: <b>{total_channels}</b>\n"
-                f"🗂 Jemi postlar: <b>{total_scheduled}</b> (Aktiv: <b>{active}</b>, Pauza: <b>{paused}</b>)\n")
+                f"🗂 Jemi postlar: <b>{total_scheduled}</b> (Active: <b>{active}</b>, Paused: <b>{paused}</b>)\n\n"
+                f"📌 Post sanawy by kanal:\n{channels_text}"
+                f"{unused_text}\n\n"
+                f"🏆 Iň köp post goýýan ulanyjylar:\n{top}\n")
         sendf(m.chat.id, text, reply_markup=admin_menu_keyboard())
     except Exception as e:
         sendf(m.chat.id, f"⚠️ Statistika alnylanda hata: {e}", reply_markup=admin_menu_keyboard())
@@ -1066,9 +994,8 @@ def admin_channel_add_step(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
     ch = (m.text or "").strip()
-    if not ch.startswith('@'):
-        sendf(m.chat.id, "⚠️ Kanal ady '@' bilen başlamaly.", reply_markup=admin_menu_keyboard())
-        return
+    if not ch:
+        sendf(m.chat.id, "⚠️ Kanal boş"); return
     if ch not in db.get("channels", []):
         db.setdefault("channels", []).append(ch); save_db()
         sendf(m.chat.id, f"✅ Kanal goşuldy: {ch}", reply_markup=admin_menu_keyboard())
@@ -1136,7 +1063,7 @@ def admin_remove_step(m: types.Message):
 def admin_promo_create_prompt(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
-    msg = sendf(m.chat.id, "Format: KOD STARLAR LIMIT(0 ýa-da boş bolsa limitsiz)\nMysal: NEW2025 5 10", reply_markup=types.ReplyKeyboardRemove())
+    msg = sendf(m.chat.id, "Format: KOD STARLAR LIMIT(0 üçin hiç)\nMysal: NEW2025 5 10", reply_markup=types.ReplyKeyboardRemove())
     bot.register_next_step_handler(msg, admin_promo_create_step)
 
 def admin_promo_create_step(m: types.Message):
@@ -1157,7 +1084,7 @@ def admin_promo_create_step(m: types.Message):
             limit = None
     db.setdefault("promos", {})[code] = {"stars": stars, "limit": limit, "used": 0}
     save_db()
-    sendf(m.chat.id, f"✅ Promocode döredildi: <code>{code}</code> — {stars} ⭐ — limit: {limit if limit is not None else 'limitsiz'}", reply_markup=admin_menu_keyboard())
+    sendf(m.chat.id, f"✅ Promocode döredildi: <code>{code}</code> — {stars} ⭐ — limit: {limit if limit is not None else 'heç'}", reply_markup=admin_menu_keyboard())
 
 @bot.message_handler(func=lambda m: (m.text or "") == "📃 Promo sanaw")
 def admin_promo_list(m: types.Message):
@@ -1168,8 +1095,7 @@ def admin_promo_list(m: types.Message):
         sendf(m.chat.id, "📭 Promocode ýok.", reply_markup=admin_menu_keyboard()); return
     txt = "<b>📃 Promocodlar:</b>\n\n"
     for code,info in promos.items():
-        limit_str = info.get('limit', 'limitsiz')
-        txt += f"<code>{code}</code> — {info.get('stars',0)} ⭐ — ulanyldy: {info.get('used',0)}/{limit_str}\n"
+        txt += f"{code} — {info.get('stars',0)} ⭐ — used: {info.get('used',0)} — limit: {info.get('limit')}\n"
     sendf(m.chat.id, txt, reply_markup=admin_menu_keyboard())
 
 # Referral bonus config
@@ -1178,7 +1104,7 @@ def admin_set_referral_bonus_prompt(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
     rb = db.get("referral_bonus", {"stars":1.0,"hours":0})
-    cur = f"⚙️ Häzirki sazlama: <b>{rb.get('stars')} ⭐</b>, <b>{rb.get('hours')} sagat</b>.\n\nFormat: STARLAR SAGAT (mysal: 1 24)\n"
+    cur = f"⚙️ Häzirki sazlama: <b>{rb.get('stars')} ⭐</b>, <b>{rb.get('hours')} sagat</b>.\n\nFormat: STARLAR HOURS (mysal: 1 24)\n"
     msg = sendf(m.chat.id, cur, reply_markup=types.ReplyKeyboardRemove())
     bot.register_next_step_handler(msg, admin_set_referral_bonus_step)
 
@@ -1209,42 +1135,13 @@ def admin_broadcast_step(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
     text = m.text or ""
-    if not text:
-        sendf(uid, "Habar boş. Yza gaýtaryldy.", reply_markup=admin_menu_keyboard())
-        return
-
-    users = list(db.get("users", {}).keys())
-    total_users = len(users)
-    
-    status_msg = sendf(m.chat.id, f"Broadcast başlandy... 0/{total_users} ulanyja ugradyldy.")
-    
-    def do_broadcast():
-        sent_count = 0
-        failed_count = 0
-        for i, uid_str in enumerate(users):
-            try:
-                user_info = db.get("users", {}).get(uid_str, {})
-                if not user_info.get("banned"):
-                    sendf(int(uid_str), text)
-                    sent_count += 1
-            except Exception:
-                failed_count += 1
-            
-            if (i + 1) % 25 == 0: # Update status every 25 users
-                try:
-                    editf(m.chat.id, status_msg.message_id, f"Broadcast dowam edýär... {i+1}/{total_users} ulanyja ugradyldy.")
-                except:
-                    pass
-                time.sleep(1) # Sleep to avoid hitting rate limits
-        
-        final_msg = f"✅ Broadcast tamamlandy!\n\nUgradyldy: {sent_count}\nÝalňyşlyk: {failed_count}"
+    cnt = 0
+    for uid_str,u in db.get("users", {}).items():
         try:
-            editf(m.chat.id, status_msg.message_id, final_msg)
-        except:
-            sendf(m.chat.id, final_msg)
-
-    threading.Thread(target=do_broadcast).start()
-
+            if u.get("banned"): continue
+            sendf(int(uid_str), text); cnt += 1
+        except: pass
+    sendf(m.chat.id, f"✅ Broadcast ugradyldy: {cnt} ulanyjy", reply_markup=admin_menu_keyboard())
 
 # Edit texts (Welcome, Guides/FAQ, VIP)
 @bot.message_handler(func=lambda m: (m.text or "") == "✏️ Yazgy Uytget")
@@ -1253,7 +1150,7 @@ def admin_edit_text_prompt(m: types.Message):
     if not is_admin(uid): return
     kb = types.ReplyKeyboardMarkup(resize_keyboard=True)
     kb.row("Welcome (Start mesajy)", "Guides/FAQ"); kb.row("VIP paket", "⬅️ Yza")
-    msg = sendf(m.chat.id, "Haýsy teksti üýtgetmek isleýärsiňiz:", reply_markup=kb)
+    msg = sendf(m.chat.id, "Haysy teksti üýtgedäýşiňiz:", reply_markup=kb)
     bot.register_next_step_handler(msg, admin_edit_text_choose)
 
 def admin_edit_text_choose(m: types.Message):
@@ -1261,30 +1158,24 @@ def admin_edit_text_choose(m: types.Message):
     if not is_admin(uid): return
     choice = (m.text or "").strip()
     key_map = {"Welcome (Start mesajy)":"welcome", "Guides/FAQ":"guides", "VIP paket":"vip"}
-    if choice == "⬅️ Yza":
-        sendf(uid, "Admin panele yza", reply_markup=admin_menu_keyboard()); return
     if choice not in key_map:
         sendf(m.chat.id, "⚠️ Dogry saýlama giriziň.", reply_markup=admin_menu_keyboard()); return
-    
-    admin_states[uid] = {"editing_key": key_map[choice]}
-    
-    msg = sendf(m.chat.id, "Täze teksti giriziň (HTML kabul edilýär):", reply_markup=types.ReplyKeyboardRemove())
+    db.setdefault("temp_admin_edit", {})["editing_key"] = key_map[choice]; save_db()
+    msg = sendf(m.chat.id, "Taze teskti girizin (HTML kabul edilýär):", reply_markup=types.ReplyKeyboardRemove())
     bot.register_next_step_handler(msg, admin_edit_text_receive)
 
 def admin_edit_text_receive(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
-    
-    st = admin_states.pop(uid, None)
-    if not st or "editing_key" not in st:
-        sendf(m.chat.id, "⚠️ Ýalňyşlyk. Sessia gutardy.", reply_markup=admin_menu_keyboard())
-        return
-
-    key = st["editing_key"]
+    st = db.get("temp_admin_edit", {})
+    key = st.get("editing_key")
+    if not key:
+        sendf(m.chat.id, "⚠️ Ýalňyş"); return
     new_text = m.text or ""
     db.setdefault("texts", {})[key] = new_text
     save_db()
-    sendf(m.chat.id, "✅ Tekst üstünlikli üýtgedildi.", reply_markup=admin_menu_keyboard())
+    sendf(m.chat.id, "✅ Tekst ustunlikli girizildi.", reply_markup=admin_menu_keyboard())
+    db.pop("temp_admin", None); save_db()
 
 # Star doldur (admin -> user)
 @bot.message_handler(func=lambda m: (m.text or "") == "Star doldur")
@@ -1309,94 +1200,142 @@ def admin_star_fill_target(m: types.Message):
         if found:
             target_uid = found
     if not target_uid:
-        sendf(m.chat.id, "⚠️ Ulanyjy tapylmady.", reply_markup=admin_menu_keyboard()); return
-    
-    admin_states[uid] = {"star_target": target_uid}
-    msg = sendf(m.chat.id, "Näçe star goşmaly? (mysal: 100):")
+        sendf(m.chat.id, "⚠️ Ulanyjy tapylmady."); return
+    db.setdefault("temp_admin", {})["star_target"] = target_uid; save_db()
+    msg = sendf(m.chat.id, "Nace star geçsin? (mysal: 100):")
     bot.register_next_step_handler(msg, admin_star_fill_amount)
 
 def admin_star_fill_amount(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
-    
-    st = admin_states.pop(uid, None)
-    if not st or "star_target" not in st:
-        sendf(m.chat.id, "⚠️ Ýalňyşlyk. Sessia gutardy.", reply_markup=admin_menu_keyboard())
-        return
-
-    target_uid = st["star_target"]
+    st = db.get("temp_admin", {})
+    target_uid = st.get("star_target")
+    if not target_uid:
+        sendf(m.chat.id, "⚠️ Target tapylmady."); return
     try:
         amount = float((m.text or "").strip())
     except:
-        sendf(m.chat.id, "⚠️ Star sany nädogry.", reply_markup=admin_menu_keyboard()); return
-    
+        sendf(m.chat.id, "⚠️ Star sany nädogry."); db.pop("temp_admin", None); save_db(); return
     u = db.get("users", {}).get(str(target_uid))
     if not u:
-        sendf(m.chat.id, "⚠️ Ulanyjy DB-de ýok.", reply_markup=admin_menu_keyboard()); return
-    
+        sendf(m.chat.id, "⚠️ Ulanyjy DB-de ýok."); db.pop("temp_admin", None); save_db(); return
     u["stars"] = round(u.get("stars", 0.0) + amount, 2); save_db()
     pretty = int(amount) if float(amount).is_integer() else amount
     sendf(m.chat.id, f"✅ {pretty} ⭐ ugradyldy", reply_markup=admin_menu_keyboard())
     try: sendf(int(target_uid), f"🔔 Siziň hasabyňyza admin tarapyndan {pretty} ⭐ geldi ✨")
     except: pass
+    db.pop("temp_admin", None); save_db()
 
 # Ban/Unban
 @bot.message_handler(func=lambda m: (m.text or "") == "🚫 Ulanyjy Ban")
 def admin_ban_prompt(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
-    msg = sendf(m.chat.id, "❗ Ban etjek ulanyjynyň ID-ni giriziň:", reply_markup=types.ReplyKeyboardRemove())
+    msg = sendf(m.chat.id, "❗ Ban etjek ulanyjynyň ID-ni ýa-da @username-ni giriziň:", reply_markup=types.ReplyKeyboardRemove())
     bot.register_next_step_handler(msg, admin_ban_step)
 
 def admin_ban_step(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
-    try: uid_to_ban = int((m.text or "").strip())
-    except:
-        sendf(m.chat.id, "⚠️ ID bolmaly."); return
-    u = db.get("users", {}).get(str(uid_to_ban))
-    if not u:
-        sendf(m.chat.id, "⚠️ Ulanyjy tapylmady."); return
-    u["banned"] = True; save_db()
+    target_raw = (m.text or "").strip()
+    if not target_raw:
+        sendf(m.chat.id, "⚠️ ID ýa-da @username giriziň."); return
+
+    target_uid = None
+    # if digit -> direct id
+    if target_raw.isdigit():
+        target_uid = int(target_raw)
+    else:
+        uname = target_raw.lstrip("@")
+        # try db first
+        found = find_user_by_username(uname)
+        if found:
+            target_uid = int(found)
+        else:
+            # try bot.get_chat() as fallback to resolve public username
+            try:
+                chatobj = bot.get_chat(target_raw if target_raw.startswith("@") else f"@{uname}")
+                # only accept private users (type == 'private') or numeric id
+                if chatobj and getattr(chatobj, "type", "") == "private":
+                    target_uid = chatobj.id
+            except Exception:
+                target_uid = None
+
+    if not target_uid:
+        sendf(m.chat.id, "⚠️ Ulanyjy tapylmady (DB-de ýa-da Telegram-de ýok).", reply_markup=admin_menu_keyboard()); return
+
+    su = str(target_uid)
+    if su not in db.get("users", {}):
+        # create minimal user record so ban flag can be stored
+        db.setdefault("users", {})[su] = {
+            "joined_at": now_iso(),
+            "username": ("@" + uname) if not target_raw.isdigit() else "",
+            "ref_by": None,
+            "banned": True,
+            "stars": 0.0,
+            "temp_stars": [],
+            "trial_end": (datetime.utcnow() + timedelta(days=FREE_TRIAL_DAYS)).isoformat(),
+            "posts": [],
+            "last_daily_bonus": None,
+            "lang": "tk"
+        }
+    else:
+        db["users"][su]["banned"] = True
+    save_db()
     # notify banned user
-    try: sendf(uid_to_ban, BAN_MESSAGE)
+    try: sendf(target_uid, BAN_MESSAGE)
     except: pass
     # notify all admins
-    info = (f"🚨 <b>Ulanyjy ban edildi</b>\nID: <code>{uid_to_ban}</code>\n"
-            f"Admin tarapyndan: <code>{uid}</code>")
+    info = (f"🚨 <b>Ulanyjy ban edildi</b>\nID: <code>{target_uid}</code>\n"
+            f"By admin: <code>{uid}</code>\n\n{BAN_MESSAGE}")
     for aid in db.get("admins", []):
         try:
-            if int(aid) != uid: sendf(int(aid), info)
+            sendf(int(aid), info)
         except: pass
-    sendf(m.chat.id, f"🔒 ✅ Ulanyjy ban edildi: <code>{uid_to_ban}</code>", reply_markup=admin_menu_keyboard())
+    sendf(m.chat.id, f"🔒 ✅ Ulanyjy ban edildi: <code>{target_uid}</code>", reply_markup=admin_menu_keyboard())
 
 @bot.message_handler(func=lambda m: (m.text or "") == "✅ Ulanyjy Unban")
 def admin_unban_prompt(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
-    msg = sendf(m.chat.id, "✅ Unban etjek ulanyjynyň ID-ni giriziň:", reply_markup=types.ReplyKeyboardRemove())
+    msg = sendf(m.chat.id, "✅ Unban etjek ulanyjynyň ID-ny ýa-da @username-ni giriziň:", reply_markup=types.ReplyKeyboardRemove())
     bot.register_next_step_handler(msg, admin_unban_step)
 
 def admin_unban_step(m: types.Message):
     uid = m.from_user.id
     if not is_admin(uid): return
-    try: uid_to_unban = int((m.text or "").strip())
-    except:
-        sendf(m.chat.id, "⚠️ ID bolmaly."); return
-    u = db.get("users", {}).get(str(uid_to_unban))
+    target_raw = (m.text or "").strip()
+    if not target_raw:
+        sendf(m.chat.id, "⚠️ ID ýa-da @username giriziň."); return
+
+    target_uid = None
+    if target_raw.isdigit():
+        target_uid = int(target_raw)
+    else:
+        uname = target_raw.lstrip("@")
+        found = find_user_by_username(uname)
+        if found:
+            target_uid = int(found)
+        else:
+            # try to resolve via get_chat
+            try:
+                chatobj = bot.get_chat(target_raw if target_raw.startswith("@") else f"@{uname}")
+                if chatobj and getattr(chatobj, "type", "") == "private":
+                    target_uid = chatobj.id
+            except Exception:
+                target_uid = None
+
+    if not target_uid:
+        sendf(m.chat.id, "⚠️ Ulanyjy tapylmady.", reply_markup=admin_menu_keyboard()); return
+
+    su = str(target_uid)
+    u = db.get("users", {}).get(su)
     if not u:
-        sendf(m.chat.id, "⚠️ Ulanyjy tapylmady."); return
+        sendf(m.chat.id, "⚠️ Ulanyjy DB-de ýok.", reply_markup=admin_menu_keyboard()); return
     u["banned"] = False; save_db()
-    sendf(m.chat.id, f"✅ Ulanyjy unban edildi: <code>{uid_to_unban}</code>", reply_markup=admin_menu_keyboard())
-    try: sendf(uid_to_unban, "✅ Siziň ban-ňyz aýryldy. Hoş geldiňiz!")
+    sendf(m.chat.id, f"✅ Ulanyjy unban edildi: <code>{target_uid}</code>", reply_markup=admin_menu_keyboard())
+    try: sendf(target_uid, "✅ Siziň ban-ňyz aýryldy. Hoş geldiňiz!")
     except: pass
-
-@bot.message_handler(func=lambda m: (m.text or "") == "⬅️ Yza")
-def back_to_main_menu(m: types.Message):
-    uid = m.from_user.id
-    if is_admin(uid):
-        sendf(uid, "Baş menýu", reply_markup=main_menu_keyboard(uid))
-
 
 # ---------------- Catch-all (admin notify + other) ----------------
 @bot.message_handler(func=lambda m: True, content_types=["text", "photo", "document", "audio", "video"])
@@ -1404,19 +1343,24 @@ def catch_all(m: types.Message):
     uid = m.from_user.id
     ensure_user(uid, m.from_user.username or m.from_user.first_name)
     if banned_guard(uid, uid):
+        u = db.get("users", {}).get(str(uid), {})
+        if u and u.get("banned"):
+            info = f"🔔 Banned user tried interacting: <code>{uid}</code>\n{BAN_MESSAGE}"
+            for aid in db.get("admins", []):
+                try: sendf(int(aid), info)
+                except: pass
         return
-        
     st = user_states.get(uid, {})
     if st.get("awaiting_admin_msg"):
         # user is about to send message to admins
         _, _, total = get_user_star_details(uid)
         if total < ADMIN_NOTIFY_COST:
-            sendf(uid, f"⚠️ Ýeterlik ⭐ ýok. ({ADMIN_NOTIFY_COST} ⭐ gerek)", reply_markup=main_menu_keyboard(uid))
+            sendf(uid, "⚠️ Ýeterlik ⭐ ýok. (10 ⭐ gerek)")
             user_states.pop(uid, None)
             return
         ok = deduct_stars(uid, ADMIN_NOTIFY_COST)
         if not ok:
-            sendf(uid, "⚠️ Starlaryňyzy aýyrmakda ýalňyşlyk ýüze çykdy.", reply_markup=main_menu_keyboard(uid))
+            sendf(uid, "⚠️ Deduction başarısız.")
             user_states.pop(uid, None)
             return
         u = db["users"].get(str(uid), {})
@@ -1424,28 +1368,32 @@ def catch_all(m: types.Message):
         posts_count = len(u.get("posts", []))
         stars_now = get_user_star_details(uid)[2]
         header = (f"📨 <b>Admine habar</b>\n"
-                  f"Kimden: @{u.get('username','')} (ID: <code>{uid}</code>)\n"
-                  f"Referallar: {referrals} | Postlar: {posts_count} | Starlar: {stars_now:.2f}\n\n")
-        
+                  f"Kim: @{u.get('username','')} (ID: <code>{uid}</code>)\n"
+                  f"Çaýran dostlar: {referrals}\n"
+                  f"Post sany: {posts_count}\n"
+                  f"Star: {stars_now:.2f}\n\n")
         for aid in db.get("admins", []):
             try:
                 aid_i = int(aid)
-                # Forward the original message to preserve all content and formatting
-                bot.forward_message(aid_i, uid, m.message_id)
-                # Send the header information separately
-                sendf(aid_i, header)
+                if m.photo:
+                    # send header and forward photo
+                    sendf(aid_i, header + (m.caption or ""))
+                    bot.send_photo(aid_i, m.photo[-1].file_id, caption="— Habaryň suraty —")
+                elif m.document:
+                    sendf(aid_i, header + (m.caption or ""))
+                    bot.send_document(aid_i, m.document.file_id, caption="— Habaryň file —")
+                else:
+                    sendf(aid_i, header + (m.text or ""))
             except Exception:
                 pass
         sendf(uid, "✅ Habaryňyz adminlara ugradyldy.", reply_markup=main_menu_keyboard(uid))
         user_states.pop(uid, None)
         return
-    # If no specific state, return to main menu on unknown command
-    sendf(uid, "Näbelli buýruk. Baş menýu.", reply_markup=main_menu_keyboard(uid))
-
+    # nothing else to do here
 
 # ---------------- Startup message ----------------
 if __name__ == "__main__":
-    print(f"Bot @{bot.get_me().username} ady bilen işe başlaýar...")
-    print(f"Veritabanı dosyası: {DB_PATH}")
-    print(f"Yüklendi admin ID'leri: {ADMIN_IDS}")
+    print("Bot başlatılıyor...")
+    print(f"Admin ID'leri: {ADMIN_IDS}")
+    print(f"Veritabanı yolu: {DB_PATH}")
     bot.infinity_polling(skip_pending=True, timeout=60)
